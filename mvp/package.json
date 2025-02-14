@@ -1,0 +1,19 @@
+{
+  "name": "littlegreen",
+  "version": "1.0.0",
+  "description": "MVP Development",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "rectinjh",
+  "license": "MIT",
+  "dependencies": {
+    "@solana/spl-token": "^0.4.12",
+    "@solana/web3.js": "^1.98.0",
+    "axios": "^1.7.9",
+    "bip39": "^3.1.0",
+    "bs58": "^6.0.0",
+    "ed25519-hd-key": "^1.3.0"
+  }
+}
