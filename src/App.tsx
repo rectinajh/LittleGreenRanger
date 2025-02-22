@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Sun, 
   Wallet, 
@@ -18,6 +18,8 @@ import {
   ShoppingCart,
   TrendingUp
 } from 'lucide-react';
+import toast, { Toaster } from 'react-hot-toast';
+import { Connection, PublicKey, clusterApiUrl, LAMPORTS_PER_SOL } from '@solana/web3.js';
 
 // Mock data - replace with real data later
 const mockGenerationData = [
@@ -41,9 +43,27 @@ const mockBurnHistory = [
   { date: '2025-02-03', amount: 30, carbonReduction: 1.5, status: 'completed' },
 ];
 
+type PhantomEvent = "disconnect" | "connect" | "accountChanged";
+
+interface ConnectOpts {
+  onlyIfTrusted: boolean;
+}
+
+interface PhantomProvider {
+  connect: (opts?: Partial<ConnectOpts>) => Promise<{ publicKey: { toString: () => string } }>;
+  disconnect: () => Promise<void>;
+  on: (event: PhantomEvent, callback: (args: any) => void) => void;
+  isPhantom: boolean;
+}
+
+type WindowWithSolana = Window & { 
+  solana?: PhantomProvider;
+}
+
 function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isWalletConnected, setIsWalletConnected] = useState(false);
+  const [walletAddress, setWalletAddress] = useState<string>("");
   const [selectedLoggerId, setSelectedLoggerId] = useState('logger-1');
   const [activeTab, setActiveTab] = useState('overview');
   const [burnAmount, setBurnAmount] = useState('');
@@ -54,8 +74,116 @@ function App() {
     marketingEmails: false
   });
 
-  const toggleWallet = () => {
-    setIsWalletConnected(!isWalletConnected);
+  const [solBalance, setSolBalance] = useState<number | null>(null);
+
+  const getProvider = (): PhantomProvider | undefined => {
+    if ("solana" in window) {
+      const provider = (window as WindowWithSolana).solana;
+      if (provider?.isPhantom) {
+        return provider;
+      }
+    }
+    toast((t) => (
+      <div className="flex flex-col gap-2">
+        <p>You haven't installed the Phantom wallet yet. Click here to install the Phantom wallet, and return to continue once done.</p>
+        <button
+          onClick={() => {
+            window.open("https://phantom.app/", "_blank");
+            toast.dismiss(t.id);
+          }}
+          className="bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700"
+        >
+          Install Phantom Wallet
+        </button>
+      </div>
+    ), {
+      duration: 6000,
+    });
+  };
+
+  const connectWallet = async () => {
+    const provider = getProvider();
+    if (!provider) return;
+
+    try {
+      toast.loading("Please authorize the DApp to connect to your Phantom wallet, ensuring we can obtain your wallet address for transaction operations.", {
+        duration: 2000,
+      });
+
+      const response = await provider.connect();
+      const address = response.publicKey.toString();
+      setWalletAddress(address);
+      setIsWalletConnected(true);
+
+      // Fetch Solana balance
+      const connection = new Connection(clusterApiUrl('devnet'));
+      const balance = await connection.getBalance(new PublicKey(address));
+      setSolBalance(balance / LAMPORTS_PER_SOL);
+
+      toast.success("Connection successful! Your Phantom wallet has been successfully connected, and you can start making transactions and operations.", {
+        duration: 3000,
+      });
+
+      // Add wallet event listeners
+      provider.on("disconnect", () => {
+        setIsWalletConnected(false);
+        setWalletAddress("");
+        // toast.success("您的钱包已成功断开连接，您的账户信息已清除。");
+      });
+
+      provider.on("accountChanged", (publicKey: any) => {
+        if (publicKey) {
+          setWalletAddress(publicKey.toString());
+          toast.success("The wallet account has been changed.");
+        } else {
+          setIsWalletConnected(false);
+          setWalletAddress("");
+          toast.error("Wallet connection disconnected.");
+        }
+      });
+
+    } catch (err) {
+      console.error("Error connecting wallet:", err);
+      toast.error("Connection failed, please check if your Phantom wallet is correctly installed and enabled, or try reloading the page.");
+    }
+  };
+
+  const disconnectWallet = async () => {
+    toast((t) => (
+      <div className="flex flex-col gap-2">
+        <p>Are you sure you want to disconnect from the Phantom wallet? Once disconnected, your wallet address and all sensitive information will no longer be associated with the DApp.</p>
+        <div className="flex gap-2">
+          <button
+            onClick={async () => {
+              const provider = getProvider();
+              if (provider) {
+                try {
+                  await provider.disconnect();
+                  setIsWalletConnected(false);
+                  setWalletAddress("");
+                  toast.success("Your wallet has been successfully disconnected, and your account information has been cleared.");
+                } catch (err) {
+                  console.error("Error disconnecting wallet:", err);
+                  toast.error("Failed to disconnect, please try again later.");
+                }
+              }
+              toast.dismiss(t.id);
+            }}
+            className="bg-red-600 text-white px-4 py-2 rounded-md hover:bg-red-700"
+          >
+            Confirm Disconnect
+          </button>
+          <button
+            onClick={() => toast.dismiss(t.id)}
+            className="bg-gray-200 text-gray-800 px-4 py-2 rounded-md hover:bg-gray-300"
+          >
+             Cancel
+          </button>
+        </div>
+      </div>
+    ), {
+      duration: 6000,
+    });
   };
 
   const handleBurnTokens = () => {
@@ -81,6 +209,7 @@ function App() {
                   <div className="bg-gray-50 p-4 rounded-lg">
                     <h3 className="text-md font-medium text-gray-700 mb-2">Total Balance</h3>
                     <p className="text-2xl font-bold text-gray-900">773 Tokens</p>
+            
                     <div className="mt-4">
                       <button
                         onClick={() => setShowBurnModal(true)}
@@ -281,6 +410,10 @@ function App() {
                           773 Tokens
                         </div>
                       </dd>
+                      <dd className="mt-2">
+                        <p className="text-md text-gray-700">Solana Balance: {solBalance !== null ? `${solBalance} SOL` : 'Loading...'}</p>
+                        <p className="text-sm text-gray-500">Address: {walletAddress}</p>
+                        </dd>
                     </dl>
                   </div>
                 </div>
@@ -347,6 +480,7 @@ function App() {
 
   return (
     <div className="min-h-screen bg-gray-50">
+      <Toaster position="top-center" />
       {/* Navigation */}
       <nav className="bg-white shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -400,11 +534,13 @@ function App() {
             </div>
             <div className="flex items-center">
               <button
-                onClick={toggleWallet}
-                className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                onClick={isWalletConnected ? disconnectWallet : connectWallet}
+                className="inline-flex items-center px-10 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
               >
                 <Wallet className="mr-2 h-4 w-4" />
-                {isWalletConnected ? "8fE2...19Aa" : "Connect Wallet"}
+                {isWalletConnected ? 
+                  walletAddress.slice(0, 4) + "..." + walletAddress.slice(-4) 
+                  : "Connect Phantom"}
               </button>
             </div>
           </div>
@@ -474,7 +610,7 @@ function App() {
               <div>
                 <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-green-100">
                   <Leaf className="h-6 w-6 text-green-600" />
-                </div>
+                 </div>
                 <div className="mt-3 text-center sm:mt-5">
                   <h3 className="text-lg leading-6 font-medium text-gray-900">
                     Burn Tokens for Carbon Reduction
