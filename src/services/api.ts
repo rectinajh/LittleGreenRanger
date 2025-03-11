@@ -13,7 +13,10 @@ import type {
   } from '../types';
 
 
-const BASE_URL = 'https://api.valueclouds.com';
+// api.ts
+const baseURL = process.env.NODE_ENV === 'production' 
+  ? '/api'  // 生产环境使用Edge Function
+  : 'https://api.valueclouds.com'; // 开发环境直接调用
 
 
 class ApiService {
@@ -42,12 +45,12 @@ class ApiService {
     const signature = await auth.generateSignature(path, authData.secret);
     
     console.log('发送请求:', {
-      url: `${BASE_URL}${path}`,
-      params: params  // 打印参数
+      url: `${baseURL}${path}`,
+      params: params
     });
   
-    return axios.get(`${BASE_URL}${path}`, {
-      params: params,  // 添加这行，作为 query 参数
+    return axios.get(`${baseURL}${path}`, {
+      params: params,
       headers: {
         i18n: 'zh_CN',
         auth: authData.auth,
