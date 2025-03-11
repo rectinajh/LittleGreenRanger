@@ -19,6 +19,11 @@ import {
   TrendingUp
 } from 'lucide-react';
 import toast, { Toaster } from 'react-hot-toast';
+
+import { api } from './services/api';
+import { auth } from './services/auth';
+import { GenerationData, TokenHistory, BurnHistory } from './types';
+
 import { Connection, PublicKey, clusterApiUrl, LAMPORTS_PER_SOL } from '@solana/web3.js';
 
 // Mock data - replace with real data later
@@ -73,6 +78,141 @@ function App() {
     systemAlerts: true,
     marketingEmails: false
   });
+
+  const [dailyEnergyData, setDailyEnergyData] = useState(null);
+  const [monthlyEnergyData, setMonthlyEnergyData] = useState(null);
+  const [yearlyEnergyData, setYearlyEnergyData] = useState(null);
+  const [ecerData, setEcerData] = useState<any>(null);
+  const [energyData, setEnergyData] = useState<any>(null);
+  const [generationData, setGenerationData] = useState<GenerationData[]>([]);
+  const [tokenHistory, setTokenHistory] = useState<TokenHistory[]>([]);
+  const [burnHistory, setBurnHistory] = useState<BurnHistory[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  // 添加登录状态
+const [isLoggedIn, setIsLoggedIn] = useState(false);
+
+// 添加登录函数
+const login = async () => {
+  try {
+    await auth.login();
+    setIsLoggedIn(true);
+    toast.success('登录成功');
+  } catch (error) {
+    console.error('登录失败:', error);
+    toast.error('登录失败');
+    return false;
+  }
+};
+
+  // fetchData 和 fetchEnergyData 函数
+  const fetchData = async () => {
+    if (!isLoggedIn) {
+      const success = await login();
+      if (!success) return;
+    }
+  
+    setIsLoading(true);
+    try {
+      const [generationData, tokenHistoryData, burnHistoryData] = await Promise.all([
+        api.getGenerationData(),
+        api.getTokenHistory(),
+        api.getBurnHistory()
+      ]);
+  
+      setGenerationData(generationData);
+      setTokenHistory(tokenHistoryData);
+      setBurnHistory(burnHistoryData);
+    } catch (error) {
+      toast.error('获取数据失败');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const fetchEnergyData = async () => {
+    if (!isLoggedIn) return; // 如果未登录，不获取能源数据
+  
+    try {
+      // 获取每日发电量
+      const today = new Date().toISOString().split('T')[0];
+      console.log('today:', today);
+      const dailyData = await api.getEnergyDay(today);
+      console.log('API返回数据:', dailyData); // 添加日志
+      
+
+      if (dailyData) {
+        setDailyEnergyData(dailyData);
+        console.log('数据已设置'); // 添加日志
+      }
+
+      // 获取年度每月发电量
+      const yearlyData = await api.getEnergyYearPerMonth({
+        date: today,
+        devaddr: 1,
+        devcode: 23727,
+        pn: 'E60000231141084179',
+        sn: 'DEV194DF395ECBDD3C',
+        type: 1
+      });
+      if (yearlyData && yearlyData.vals) {
+        const februaryVal = yearlyData.vals.find(v => v.ts === '2025-02')?.val || 0;
+        const marchVal = yearlyData.vals.find(v => v.ts === '2025-03')?.val || 0;
+        
+        console.log('2025-02 发电量:', februaryVal);
+        console.log('2025-03 发电量:', marchVal);
+
+        const totalEnergy = Number(februaryVal) + Number(marchVal);
+        const ecerData = await api.getECERIncome(Number(totalEnergy));
+        console.log(`二氧化碳减排量: ${ecerData.erCarbonDioxideEmission} kg`);
+        console.log(`相当于种植树木: ${ecerData.erEqTreePlanting} 棵`);
+        console.log(`节省标准煤: ${ecerData.erSavingStandardCoal} kg`);
+        console.log('碳排放数据:', ecerData);
+
+
+        setEcerData(ecerData);
+
+        
+
+        setYearlyEnergyData(yearlyData); // 添加这行
+        
+      }
+    
+    
+      // 获取月度每天发电量
+      const monthlyData = await api.getEnergyMonthPerDay({
+        date: today,
+        devaddr: 1,
+        devcode: 23727,
+        pn: 'E60000231141084179',
+        sn: 'DEV194DF395ECBDD3C',
+        type: 1
+      });
+      setMonthlyEnergyData(monthlyData);
+      console.log('月度每天发电量:', monthlyData);
+    } catch (error) {
+      console.error('获取能源数据失败:', error);
+      toast.error('获取能源数据失败');
+    }
+  };
+
+  
+
+  useEffect(() => {
+    login();
+  }, []);
+  
+
+   // useEffect
+ // 只在登录时获取数据
+ useEffect(() => {
+  console.log('登录状态:', isLoggedIn);
+  if (isLoggedIn) {
+    fetchData().then(() => {
+      fetchEnergyData(); // 只在登录后获取数据
+    });
+  }
+}, [isLoggedIn]);
+
 
   const [solBalance, setSolBalance] = useState<number | null>(null);
 
@@ -199,6 +339,54 @@ function App() {
 
   const renderContent = () => {
     switch (activeTab) {
+      // 在 renderContent 函数中添加新的 case
+      case 'overview':
+        return (
+          <div className="space-y-6">
+            <div className="bg-white shadow rounded-lg p-6">
+              <h2 className="text-lg font-medium text-gray-900 mb-4">能源概览</h2>
+              {isLoading ? (
+                <div>加载中...</div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  {/* 现有的发电量卡片 */}
+                  <div className="bg-gray-50 p-4 rounded-lg">
+                    <h3 className="text-md font-medium text-gray-700 mb-2">今日发电量</h3>
+                    <p className="text-2xl font-bold text-gray-900">
+                     {dailyEnergyData ? `${dailyEnergyData.energyDay} ${dailyEnergyData.energyDayUnit}` : '暂无数据'}
+                    </p>
+                  </div>
+                  
+                  {/* 新增环境影响卡片 */}
+                  <div className="bg-green-50 p-4 rounded-lg">
+  <h3 className="text-md font-medium text-green-700 mb-2">碳减排</h3>
+  <p className="text-sm text-green-500 mt-1">减少碳排放量{ecerData ? `${ecerData.erCarbonDioxideEmission} kg` : '暂无数据'}</p>
+  <p className="text-sm text-green-500">相当于种植 {ecerData?.erEqTreePlanting || 0} 棵树</p>
+  <p className="text-sm text-green-500">节省 {ecerData?.erSavingStandardCoal || 0} kg 标准煤</p>
+</div>
+                  
+                  {/* 现有的发电统计 */}
+                  <div className="bg-gray-50 p-4 rounded-lg">
+                    <h3 className="text-md font-medium text-gray-700 mb-2">发电统计</h3>
+                    <div className="space-y-2">
+                    {monthlyEnergyData?.vals
+    ?.filter(item => new Date(item.ts) <= new Date('2025-03-10'))
+    ?.slice()
+    .reverse()
+    .slice(0, 5)
+    .map((item, index) => (
+      <div key={index} className="flex justify-between">
+        <span>{item.ts.substring(0, 10)}</span>
+        <span>{Number(item.val).toFixed(2)} kWh</span>
+      </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        );
       case 'token-management':
         return (
           <div className="space-y-6">
@@ -208,7 +396,12 @@ function App() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="bg-gray-50 p-4 rounded-lg">
                     <h3 className="text-md font-medium text-gray-700 mb-2">Total Balance</h3>
-                    <p className="text-2xl font-bold text-gray-900">773 Tokens</p>
+                    <p className="text-2xl font-bold text-gray-900">
+  {yearlyEnergyData?.vals ? 
+    `${(yearlyEnergyData.vals.find(v => v.ts === '2025-02')?.val || 0) + 
+       (yearlyEnergyData.vals.find(v => v.ts === '2025-03')?.val || 0)} LGR Tokens` 
+    : '暂无数据'}
+</p>
             
                     <div className="mt-4">
                       <button
