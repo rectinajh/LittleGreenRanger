@@ -1,4 +1,13 @@
 import React, { useState, useEffect } from 'react';
+import { useWalletModal } from '@solana/wallet-adapter-react-ui';
+
+// 在App.tsx顶部导入
+import { useWallet, useConnection } from '@solana/wallet-adapter-react';
+import { WalletNotConnectedError } from '@solana/wallet-adapter-base';
+import { LAMPORTS_PER_SOL, PublicKey, Connection } from '@solana/web3.js';
+import { getAssociatedTokenAddress, getAccount } from '@solana/spl-token';
+
+
 import { 
   Sun, 
   Wallet, 
@@ -24,7 +33,6 @@ import { api } from './services/api';
 import { auth } from './services/auth';
 import { GenerationData, TokenHistory, BurnHistory } from './types';
 
-import { Connection, PublicKey, clusterApiUrl, LAMPORTS_PER_SOL } from '@solana/web3.js';
 
 // Mock data - replace with real data later
 const mockGenerationData = [
@@ -48,30 +56,30 @@ const mockBurnHistory = [
   { date: '2025-02-03', amount: 30, carbonReduction: 1.5, status: 'completed' },
 ];
 
-type PhantomEvent = "disconnect" | "connect" | "accountChanged";
 
-interface ConnectOpts {
-  onlyIfTrusted: boolean;
-}
 
-interface PhantomProvider {
-  connect: (opts?: Partial<ConnectOpts>) => Promise<{ publicKey: { toString: () => string } }>;
-  disconnect: () => Promise<void>;
-  on: (event: PhantomEvent, callback: (args: any) => void) => void;
-  isPhantom: boolean;
-}
 
-type WindowWithSolana = Window & { 
-  solana?: PhantomProvider;
-}
 
 function App() {
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [isWalletConnected, setIsWalletConnected] = useState(false);
-  const [walletAddress, setWalletAddress] = useState<string>("");
-  const [selectedLoggerId, setSelectedLoggerId] = useState('logger-1');
-  const [activeTab, setActiveTab] = useState('overview');
+
+  const { setVisible } = useWalletModal();
+
+  const [isOpen, setIsOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState('dashboard');
+  const [showModal, setShowModal] = useState(false);
   const [burnAmount, setBurnAmount] = useState('');
+  const [activeTimeframe, setActiveTimeframe] = useState('day');
+
+    // 使用钱包适配器提供的连接和钱包对象
+    const { connection } = useConnection();
+    const wallet = useWallet();
+    const { publicKey, connected, connecting, disconnect, connect } = wallet;
+
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [walletAddress, setWalletAddress] = useState<string>("");
+  const [tokenBalance, setTokenBalance] = useState(0);
+  const [walletBalance, setWalletBalance] = useState<number | null>(null);
+  const [selectedLoggerId, setSelectedLoggerId] = useState('logger-1');
   const [showBurnModal, setShowBurnModal] = useState(false);
   const [notifications, setNotifications] = useState({
     tokenUpdates: true,
@@ -88,8 +96,10 @@ function App() {
   const [tokenHistory, setTokenHistory] = useState<TokenHistory[]>([]);
   const [burnHistory, setBurnHistory] = useState<BurnHistory[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+
   // 添加登录状态
 const [isLoggedIn, setIsLoggedIn] = useState(false);
+
 
 // 添加登录函数
 const login = async () => {
@@ -213,129 +223,161 @@ const login = async () => {
   }
 }, [isLoggedIn]);
 
+  // 定义一个常量用于LGR代币的Mint地址
+const LGR_TOKEN_MINT = new PublicKey('9GakfdPu97JYJ3EiEUYcx16d4Ho3sSsc7j5tzrSAVFEs');
 
-  const [solBalance, setSolBalance] = useState<number | null>(null);
-
-  const getProvider = (): PhantomProvider | undefined => {
-    if ("solana" in window) {
-      const provider = (window as WindowWithSolana).solana;
-      if (provider?.isPhantom) {
-        return provider;
-      }
-    }
-    toast((t) => (
-      <div className="flex flex-col gap-2">
-        <p>You haven't installed the Phantom wallet yet. Click here to install the Phantom wallet, and return to continue once done.</p>
-        <button
-          onClick={() => {
-            window.open("https://phantom.app/", "_blank");
-            toast.dismiss(t.id);
-          }}
-          className="bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700"
-        >
-          Install Phantom Wallet
-        </button>
-      </div>
-    ), {
-      duration: 6000,
-    });
-  };
-
-  const connectWallet = async () => {
-    const provider = getProvider();
-    if (!provider) return;
-
+// 添加获取LGR代币余额的函数
+const getLGRTokenBalance = async (walletPublicKey: PublicKey) => {
+  try {
+    // 获取关联的代币账户地址
+    const tokenAccountAddress = await getAssociatedTokenAddress(
+      LGR_TOKEN_MINT,
+      walletPublicKey
+    );
+    
     try {
-      toast.loading("Please authorize the DApp to connect to your Phantom wallet, ensuring we can obtain your wallet address for transaction operations.", {
-        duration: 2000,
-      });
-
-      const response = await provider.connect();
-      const address = response.publicKey.toString();
-      setWalletAddress(address);
-      setIsWalletConnected(true);
-
-      // Fetch Solana balance
-      const connection = new Connection(clusterApiUrl('devnet'));
-      const balance = await connection.getBalance(new PublicKey(address));
-      setSolBalance(balance / LAMPORTS_PER_SOL);
-
-      toast.success("Connection successful! Your Phantom wallet has been successfully connected, and you can start making transactions and operations.", {
-        duration: 3000,
-      });
-
-      // Add wallet event listeners
-      provider.on("disconnect", () => {
-        setIsWalletConnected(false);
-        setWalletAddress("");
-        // toast.success("您的钱包已成功断开连接，您的账户信息已清除。");
-      });
-
-      provider.on("accountChanged", (publicKey: any) => {
-        if (publicKey) {
-          setWalletAddress(publicKey.toString());
-          toast.success("The wallet account has been changed.");
-        } else {
-          setIsWalletConnected(false);
-          setWalletAddress("");
-          toast.error("Wallet connection disconnected.");
-        }
-      });
-
-    } catch (err) {
-      console.error("Error connecting wallet:", err);
-      toast.error("Connection failed, please check if your Phantom wallet is correctly installed and enabled, or try reloading the page.");
+      // 使用钱包适配器提供的connection
+      const tokenAccount = await getAccount(connection, tokenAccountAddress);
+      // 返回余额（代币的小数位可能不是9，需根据实际情况调整）
+      return Number(tokenAccount.amount) / Math.pow(10, 9);
+    } catch (e) {
+      console.log('找不到LGR代币账户，余额可能为0');
+      return 0;
     }
-  };
+  } catch (error) {
+    console.error('获取LGR代币余额失败:', error);
+    return 0;
+  }
+};
 
-  const disconnectWallet = async () => {
-    toast((t) => (
-      <div className="flex flex-col gap-2">
-        <p>Are you sure you want to disconnect from the Phantom wallet? Once disconnected, your wallet address and all sensitive information will no longer be associated with the DApp.</p>
-        <div className="flex gap-2">
-          <button
-            onClick={async () => {
-              const provider = getProvider();
-              if (provider) {
-                try {
-                  await provider.disconnect();
-                  setIsWalletConnected(false);
-                  setWalletAddress("");
-                  toast.success("Your wallet has been successfully disconnected, and your account information has been cleared.");
-                } catch (err) {
-                  console.error("Error disconnecting wallet:", err);
-                  toast.error("Failed to disconnect, please try again later.");
-                }
-              }
-              toast.dismiss(t.id);
-            }}
-            className="bg-red-600 text-white px-4 py-2 rounded-md hover:bg-red-700"
-          >
-            Confirm Disconnect
-          </button>
-          <button
-            onClick={() => toast.dismiss(t.id)}
-            className="bg-gray-200 text-gray-800 px-4 py-2 rounded-md hover:bg-gray-300"
-          >
-             Cancel
-          </button>
-        </div>
-      </div>
-    ), {
-      duration: 6000,
-    });
-  };
+const updateBalances = async () => {
+  if (connected && publicKey) {
+    try {
+      const balance = await connection.getBalance(publicKey);
+      setWalletBalance(balance / LAMPORTS_PER_SOL);
+      
+      const tokenBal = await getLGRTokenBalance(publicKey);
+      setTokenBalance(tokenBal);
+    } catch (error) {
+      console.error("Error updating balances:", error);
+    }
+  }
+};
 
-  const handleBurnTokens = () => {
-    if (!burnAmount || parseInt(burnAmount) <= 0) {
-      alert('Please enter a valid amount');
+
+  // 使用wallet adapter连接钱包
+const connectWallet = async () => {
+  try {
+
+    // 打开钱包选择模态框
+    setVisible(true);
+
+    // 这里应该先确保有可用的钱包，然后再尝试连接
+    if (!wallet || !connected && connecting) {
+      toast.error('请等待钱包连接完成');
       return;
     }
-    // Add token burn logic here
-    alert(`Successfully burned ${burnAmount} tokens, reducing carbon emissions by ${parseFloat(burnAmount) * 0.05} tons`);
-    setShowBurnModal(false);
-    setBurnAmount('');
+  
+    toast.loading("Please authorize the DApp to connect to your wallet, ensuring we can obtain your wallet address for transaction operations.", {
+      duration: 2000,
+    });
+
+    await connect();
+
+     // 连接成功后获取余额
+     if (publicKey) {
+      updateBalances();
+    }
+
+  } catch (err) {
+    console.error("Error connecting wallet:", err);
+    toast.error("Connection failed, please check if your wallet is correctly installed and enabled, or try reloading the page.");
+  }
+};
+
+// 使用wallet adapter断开钱包连接
+const disconnectWallet = async () => {
+  toast((t) => (
+    <div className="flex flex-col gap-2">
+      <p>Are you sure you want to disconnect from your wallet? Once disconnected, your wallet address and all sensitive information will no longer be associated with the DApp.</p>
+      <div className="flex gap-2">
+        <button
+          onClick={async () => {
+            try {
+              await disconnect();
+              toast.success("Your wallet has been successfully disconnected, and your account information has been cleared.");
+            } catch (err) {
+              console.error("Error disconnecting wallet:", err);
+              toast.error("Failed to disconnect, please try again later.");
+            }
+            toast.dismiss(t.id);
+          }}
+          className="bg-red-600 text-white px-4 py-2 rounded-md hover:bg-red-700"
+        >
+          Confirm Disconnect
+        </button>
+        <button
+          onClick={() => toast.dismiss(t.id)}
+          className="bg-gray-200 text-gray-800 px-4 py-2 rounded-md hover:bg-gray-300"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  ), {
+    duration: 6000,
+  });
+};
+
+// 使用useEffect监听钱包连接状态，更新相关状态
+useEffect(() => {
+  let balanceInterval: NodeJS.Timeout | null = null;
+  
+  if (connected && publicKey) {
+    const address = publicKey.toString();
+    setWalletAddress(address);
+    
+    // Initial balance update
+    updateBalances();
+    
+    // Set interval for periodic balance updates
+    balanceInterval = setInterval(updateBalances, 30000);
+    
+    // Successful connection toast
+    toast.success("Connection successful! Your wallet has been successfully connected, and you can start making transactions and operations.", {
+      duration: 3000,
+    });
+  } else {
+    setWalletAddress("");
+    setWalletBalance(null);
+    setTokenBalance(0);
+  }
+  
+  // Cleanup function to clear interval
+  return () => {
+    if (balanceInterval) {
+      clearInterval(balanceInterval);
+    }
   };
+}, [connected, publicKey, connection]);
+
+// 使用钱包适配器处理代币燃烧
+const handleBurnTokens = () => {
+  if (!burnAmount || parseInt(burnAmount) <= 0) {
+    toast.error('Please enter a valid amount');
+    return;
+  }
+  
+  if (!connected || !publicKey) {
+    throw new WalletNotConnectedError();
+    return;
+  }
+  
+  // Add token burn logic here using the wallet adapter
+  toast.success(`Successfully burned ${burnAmount} tokens, reducing carbon emissions by ${parseFloat(burnAmount) * 0.05} tons`);
+  setShowBurnModal(false);
+  setBurnAmount('');
+};
 
   const renderContent = () => {
     switch (activeTab) {
@@ -356,6 +398,27 @@ const login = async () => {
                      {dailyEnergyData ? `${dailyEnergyData.energyDay} ${dailyEnergyData.energyDayUnit}` : '暂无数据'}
                     </p>
                   </div>
+
+                  {/* Solana Balance */}
+                  <div className="bg-gray-50 p-4 rounded-lg">
+                    <h3 className="text-md font-medium text-gray-700 mb-2">Solana Balance</h3>
+                    <div className="space-y-1">
+                      <div className="flex flex-col">
+                        <span className="text-sm text-gray-500">Address:</span>
+                        <span className="text-xs text-gray-600 font-mono truncate">
+                          {walletAddress || '未连接钱包'}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center mt-2">
+                      <p className="text-md text-gray-700">Solana Balance: {walletBalance !== null ? `${walletBalance} SOL` : 'Loading...'}</p>
+                        <span className="text-sm text-gray-500">Current Token Balance:</span>
+                        <span className="font-medium text-green-600">
+                          {tokenBalance ? `${tokenBalance.toFixed(4)} LGR` : '0.0000 LGR'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
                   
                   {/* 新增环境影响卡片 */}
                   <div className="bg-green-50 p-4 rounded-lg">
@@ -370,16 +433,17 @@ const login = async () => {
                     <h3 className="text-md font-medium text-gray-700 mb-2">发电统计</h3>
                     <div className="space-y-2">
                     {monthlyEnergyData?.vals
-    ?.filter(item => new Date(item.ts) <= new Date('2025-03-10'))
-    ?.slice()
-    .reverse()
-    .slice(0, 5)
-    .map((item, index) => (
-      <div key={index} className="flex justify-between">
-        <span>{item.ts.substring(0, 10)}</span>
-        <span>{Number(item.val).toFixed(2)} kWh</span>
-      </div>
-                      ))}
+  ?.filter(item => new Date(item.ts) <= new Date()) // 使用当前日期替代固定日期
+  ?.slice()
+  .reverse()
+  .slice(0, 15)
+  .map((item, index) => (
+    <div key={index} className="flex justify-between">
+      <span>{item.ts.substring(0, 10)}</span>
+      <span>{Number(item.val).toFixed(2)} kWh</span>
+    </div>
+  ))
+}
                     </div>
                   </div>
                 </div>
@@ -600,11 +664,11 @@ const login = async () => {
                       </dt>
                       <dd className="flex items-baseline">
                         <div className="text-2xl font-semibold text-gray-900">
-                          773 Tokens
+                          {tokenBalance} Tokens
                         </div>
                       </dd>
                       <dd className="mt-2">
-                        <p className="text-md text-gray-700">Solana Balance: {solBalance !== null ? `${solBalance} SOL` : 'Loading...'}</p>
+                        <p className="text-md text-gray-700">Solana Balance: {walletBalance !== null ? `${walletBalance} SOL` : 'Loading...'}</p>
                         <p className="text-sm text-gray-500">Address: {walletAddress}</p>
                         </dd>
                     </dl>
@@ -726,14 +790,14 @@ const login = async () => {
               </div>
             </div>
             <div className="flex items-center">
-              <button
-                onClick={isWalletConnected ? disconnectWallet : connectWallet}
-                className="inline-flex items-center px-10 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-              >
-                <Wallet className="mr-2 h-4 w-4" />
-                {isWalletConnected ? 
-                  walletAddress.slice(0, 4) + "..." + walletAddress.slice(-4) 
-                  : "Connect Phantom"}
+            <button
+              onClick={connected ? disconnectWallet : connectWallet}
+              className="inline-flex items-center px-10 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+            >
+              <Wallet className="mr-2 h-4 w-4" />
+              {connected ? 
+                walletAddress.slice(0, 4) + "..." + walletAddress.slice(-4) 
+    : "Connect Wallet"}
               </button>
             </div>
           </div>
