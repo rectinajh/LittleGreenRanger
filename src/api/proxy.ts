@@ -4,19 +4,33 @@ export const config = {
   
   export default async function handler(req: Request) {
     const url = new URL(req.url);
-    // proxy.ts (修改第5-6行)
-const targetUrl = 'https://api.valueclouds.com' + url.pathname + url.search;
-// 移除路径替换逻辑: .replace(/^\/api/, '')
-  
+
+    console.log('Original path:', url.pathname);
+console.log('Processed path:', url.pathname.replace(/^\/api/, ''));
+
+    // 需要修正后端路径
+// const targetUrl = 'https://api.valueclouds.com/api/v1' + url.pathname + url.search; // 添加API版本路径
+    
+const baseUrl = 'https://api.valueclouds.com/api/v1';
+const targetUrl = baseUrl + url.pathname.replace(/^\/api/, '') + url.search;
+console.log('Proxying request to:', targetUrl);
+    console.log('Request headers:', Object.fromEntries(new Headers(req.headers)));
+
     const headers = new Headers(req.headers);
     headers.delete('host');
-  
+    headers.set('Authorization', `Bearer ${process.env.API_KEY}`); // 需要先在Vercel设置环境变量
+
     const response = await fetch(targetUrl, {
       method: req.method,
       headers,
-      body: req.body
+      body: req.body,
+      cf: {
+        tlsVerify: true
+      }
     });
-  
+
+    console.log('Received response status:', response.status);
+
     return new Response(response.body, {
       status: response.status,
       headers: {
@@ -26,3 +40,4 @@ const targetUrl = 'https://api.valueclouds.com' + url.pathname + url.search;
       }
     });
   }
+
