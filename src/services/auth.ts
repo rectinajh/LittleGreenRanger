@@ -1,7 +1,7 @@
 import axios from 'axios';
 import { AuthResponse, LoginPayload } from '../types';
 
-const BASE_URL = 'https://api.valueclouds.com';
+const BASE_URL = '/api';
 
 export const auth = {
   async login(): Promise<AuthResponse> {

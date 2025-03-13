@@ -14,9 +14,7 @@ import type {
 
 
 // api.ts
-const baseURL = process.env.NODE_ENV === 'production' 
-  ? '/api'  // 生产环境使用Edge Function
-  : 'https://api.valueclouds.com'; // 开发环境直接调用
+const baseURL = '/api';
 
 
 class ApiService {

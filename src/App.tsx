@@ -686,7 +686,7 @@ const login = async () => {
                 {isSidebarOpen ? <X size={24} /> : <Menu size={24} />}
               </button>
               <div className="flex-shrink-0 flex items-center">
-                <Sun className="h-8 w-8 text-yellow-500" />
+              <img src="/logo.png" alt="Logo" className="h-8 w-8 mr-2" />
                 <span className="ml-2 text-xl font-bold text-gray-900">Little Green Ranger</span>
               </div>
               <div className="hidden lg:ml-6 lg:flex lg:space-x-8">
