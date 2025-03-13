@@ -4,7 +4,9 @@ export const config = {
   
   export default async function handler(req: Request) {
     const url = new URL(req.url);
-    const targetUrl = 'https://api.valueclouds.com' + url.pathname.replace(/^\/api/, '') + url.search;
+    // proxy.ts (修改第5-6行)
+const targetUrl = 'https://api.valueclouds.com' + url.pathname + url.search;
+// 移除路径替换逻辑: .replace(/^\/api/, '')
   
     const headers = new Headers(req.headers);
     headers.delete('host');
