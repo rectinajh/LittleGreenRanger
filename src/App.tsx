@@ -65,7 +65,7 @@ function App() {
   const { setVisible } = useWalletModal();
 
   const [isOpen, setIsOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState('dashboard');
+  const [activeTab, setActiveTab] = useState('overview');
   const [showModal, setShowModal] = useState(false);
   const [burnAmount, setBurnAmount] = useState('');
   const [activeTimeframe, setActiveTimeframe] = useState('day');
@@ -221,7 +221,23 @@ const login = async () => {
       fetchEnergyData(); // 只在登录后获取数据
     });
   }
-}, [isLoggedIn]);
+
+  // 监听页面可见性变化
+  const handleVisibilityChange = () => {
+    if (document.visibilityState === 'visible' && publicKey && !walletBalance) {
+      // 当页面重新变为可见且已连接钱包但余额未加载时，尝试重新获取余额
+      updateBalances();
+    }
+  };
+
+   // 注册监听器
+   document.addEventListener('visibilitychange', handleVisibilityChange);
+  
+   // 组件卸载时清理
+   return () => {
+     document.removeEventListener('visibilitychange', handleVisibilityChange);
+   };
+}, [isLoggedIn, publicKey, walletBalance]);
 
   // 定义一个常量用于LGR代币的Mint地址
 const LGR_TOKEN_MINT = new PublicKey('9GakfdPu97JYJ3EiEUYcx16d4Ho3sSsc7j5tzrSAVFEs');
@@ -266,34 +282,42 @@ const updateBalances = async () => {
 
 
   // 使用wallet adapter连接钱包
-const connectWallet = async () => {
-  try {
+  const connectWallet = async () => {
+    try {
+      // 打开钱包选择模态框
+      setVisible(true);
 
-    // 打开钱包选择模态框
-    setVisible(true);
+      // 这里应该先确保有可用的钱包，然后再尝试连接
+      if (!wallet || (!connected && connecting)) {
+        toast.error('请等待钱包连接完成');
+        return;
+      }
 
-    // 这里应该先确保有可用的钱包，然后再尝试连接
-    if (!wallet || !connected && connecting) {
-      toast.error('请等待钱包连接完成');
-      return;
+      // 在尝试连接之前给浏览器一点时间来初始化服务工作线程
+      toast.loading("正在连接钱包...", {
+        duration: 3000,
+      });
+
+      // 添加延迟以解决服务工作线程问题
+      setTimeout(async () => {
+        try {
+          await connect();
+          
+          // 连接成功后获取余额
+          if (publicKey) {
+            updateBalances();
+          }
+        } catch (connectError) {
+          console.error("Error in delayed wallet connection:", connectError);
+          toast.error("连接失败，请尝试刷新页面或重新安装钱包扩展");
+        }
+      }, 1000);
+
+    } catch (err) {
+      console.error("Error connecting wallet:", err);
+      toast.error("连接失败，请检查钱包是否正确安装并启用，或尝试重新加载页面");
     }
-  
-    toast.loading("Please authorize the DApp to connect to your wallet, ensuring we can obtain your wallet address for transaction operations.", {
-      duration: 2000,
-    });
-
-    await connect();
-
-     // 连接成功后获取余额
-     if (publicKey) {
-      updateBalances();
-    }
-
-  } catch (err) {
-    console.error("Error connecting wallet:", err);
-    toast.error("Connection failed, please check if your wallet is correctly installed and enabled, or try reloading the page.");
-  }
-};
+  };
 
 // 使用wallet adapter断开钱包连接
 const disconnectWallet = async () => {
@@ -383,74 +407,129 @@ const handleBurnTokens = () => {
     switch (activeTab) {
       // 在 renderContent 函数中添加新的 case
       case 'overview':
-        return (
-          <div className="space-y-6">
-            <div className="bg-white shadow rounded-lg p-6">
-              <h2 className="text-lg font-medium text-gray-900 mb-4">能源概览</h2>
-              {isLoading ? (
-                <div>加载中...</div>
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  {/* 现有的发电量卡片 */}
-                  <div className="bg-gray-50 p-4 rounded-lg">
-                    <h3 className="text-md font-medium text-gray-700 mb-2">今日发电量</h3>
-                    <p className="text-2xl font-bold text-gray-900">
-                     {dailyEnergyData ? `${dailyEnergyData.energyDay} ${dailyEnergyData.energyDayUnit}` : '暂无数据'}
-                    </p>
-                  </div>
+  return (
+    <div className="space-y-6">
+      <div className="bg-white shadow rounded-lg p-6">
+        <h2 className="text-lg font-medium text-gray-900 mb-4">Energy Overview</h2>
+        {isLoading ? (
+          <div>Loading...</div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {/* Daily Energy Generation Card */}
+            <div className="bg-gray-50 p-4 rounded-lg">
+              <h3 className="text-md font-medium text-gray-700 mb-2">Today's Generation</h3>
+              <p className="text-2xl font-bold text-gray-900">
+                {dailyEnergyData ? `${dailyEnergyData.energyDay} ${dailyEnergyData.energyDayUnit}` : 'No data available'}
+              </p>
+            </div>
 
-                  {/* Solana Balance */}
-                  <div className="bg-gray-50 p-4 rounded-lg">
-                    <h3 className="text-md font-medium text-gray-700 mb-2">Solana Balance</h3>
-                    <div className="space-y-1">
-                      <div className="flex flex-col">
-                        <span className="text-sm text-gray-500">Address:</span>
-                        <span className="text-xs text-gray-600 font-mono truncate">
-                          {walletAddress || '未连接钱包'}
-                        </span>
-                      </div>
-                      <div className="flex justify-between items-center mt-2">
-                      <p className="text-md text-gray-700">Solana Balance: {walletBalance !== null ? `${walletBalance} SOL` : 'Loading...'}</p>
-                        <span className="text-sm text-gray-500">Current Token Balance:</span>
-                        <span className="font-medium text-green-600">
-                          {tokenBalance ? `${tokenBalance.toFixed(4)} LGR` : '0.0000 LGR'}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  
-                  {/* 新增环境影响卡片 */}
-                  <div className="bg-green-50 p-4 rounded-lg">
-  <h3 className="text-md font-medium text-green-700 mb-2">碳减排</h3>
-  <p className="text-sm text-green-500 mt-1">减少碳排放量{ecerData ? `${ecerData.erCarbonDioxideEmission} kg` : '暂无数据'}</p>
-  <p className="text-sm text-green-500">相当于种植 {ecerData?.erEqTreePlanting || 0} 棵树</p>
-  <p className="text-sm text-green-500">节省 {ecerData?.erSavingStandardCoal || 0} kg 标准煤</p>
-</div>
-                  
-                  {/* 现有的发电统计 */}
-                  <div className="bg-gray-50 p-4 rounded-lg">
-                    <h3 className="text-md font-medium text-gray-700 mb-2">发电统计</h3>
-                    <div className="space-y-2">
-                    {monthlyEnergyData?.vals
-  ?.filter(item => new Date(item.ts) <= new Date()) // 使用当前日期替代固定日期
-  ?.slice()
-  .reverse()
-  .slice(0, 15)
-  .map((item, index) => (
-    <div key={index} className="flex justify-between">
-      <span>{item.ts.substring(0, 10)}</span>
-      <span>{Number(item.val).toFixed(2)} kWh</span>
-    </div>
-  ))
-}
-                    </div>
-                  </div>
+            {/* Solana Balance */}
+            <div className="bg-gray-50 p-4 rounded-lg">
+              <h3 className="text-md font-medium text-gray-700 mb-2">Solana Balance</h3>
+              <div className="space-y-1">
+                <div className="flex flex-col">
+                  <span className="text-sm text-gray-500">Address:</span>
+                  <span className="text-xs text-gray-600 font-mono truncate">
+                    {walletAddress || 'Wallet not connected'}
+                  </span>
                 </div>
-              )}
+                <div className="flex justify-between items-center mt-2">
+                  <p className="text-md text-gray-700">Solana Balance: {walletBalance !== null ? `${walletBalance} SOL` : 'Loading...'}</p>
+                  <span className="text-sm text-gray-500">Current Token Balance:</span>
+                  <span className="font-medium text-green-600">
+                    {tokenBalance ? `${tokenBalance.toFixed(4)} LGR` : '0.0000 LGR'}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Carbon Impact Card */}
+            <div className="bg-green-50 p-4 rounded-lg">
+              <h3 className="text-md font-medium text-green-700 mb-2">Carbon Reduction</h3>
+              <p className="text-sm text-green-500 mt-1">Carbon emissions reduced: {ecerData ? `${ecerData.erCarbonDioxideEmission} kg` : 'No data available'}</p>
+              <p className="text-sm text-green-500">Equivalent to planting {ecerData?.erEqTreePlanting || 0} trees</p>
+              <p className="text-sm text-green-500">Saved {ecerData?.erSavingStandardCoal || 0} kg standard coal</p>
+            </div>
+
+            {/* Generation Statistics - adjusted to md:col-span-1 */}
+            <div className="bg-gray-50 p-4 rounded-lg">
+              <h3 className="text-md font-medium text-gray-700 mb-2">Generation Statistics</h3>
+              <div className="space-y-2 h-[300px] overflow-y-auto">
+                {monthlyEnergyData?.vals
+                  ?.filter(item => new Date(item.ts) <= new Date())
+                  ?.slice()
+                  .reverse()
+                  .slice(0, 25)
+                  .map((item, index) => (
+                    <div key={index} className="flex justify-between">
+                      <span>{item.ts.substring(0, 10)}</span>
+                      <span>{Number(item.val).toFixed(2)} kWh</span>
+                    </div>
+                  ))
+                }
+              </div>
+            </div>
+
+              {/* Token Distribution History - placed in the grid */}
+              <div className="bg-gray-50 p-4 rounded-lg md:col-span-1 lg:col-span-2">
+              <h3 className="text-md font-medium text-gray-700 mb-2">Token Distribution History</h3>
+              <p className="text-xs text-gray-500 mb-3">Showing settled LGR tokens from completed days</p>
+              <div className="flow-root h-[300px] overflow-y-auto">
+                <ul className="-mb-8" aria-label="Token distribution timeline">
+                  {monthlyEnergyData?.vals
+                    ?.filter(item => {
+                      // Create a date for yesterday by subtracting 1 day from current date
+                      const yesterday = new Date();
+                      yesterday.setDate(yesterday.getDate() - 1);
+                      yesterday.setHours(23, 59, 59, 999); // End of yesterday
+                      
+                      return new Date(item.ts) <= yesterday;
+                    })
+                    ?.slice()
+                    .reverse()
+                    .slice(0, 25)
+                    .map((item, itemIdx, arr) => {
+                      // Convert kWh to LGR (for demonstration, using a simple conversion factor)
+                      const lgrAmount = (Number(item.val) * 1).toFixed(2);
+                      return (
+                        <li key={`${item.ts}-${item.val}`}>
+                          <div className="relative pb-8">
+                            {itemIdx !== arr.length - 1 && (
+                              <span 
+                                className="absolute top-4 left-4 -ml-px h-full w-0.5 bg-gray-200"
+                                aria-hidden="true"
+                              />
+                            )}
+                            <div className="relative flex space-x-3">
+                              <div>
+                                <span className="h-8 w-8 rounded-full bg-green-100 flex items-center justify-center ring-8 ring-white">
+                                  <Coins className="h-5 w-5 text-green-600" />
+                                </span>
+                              </div>
+                              <div className="min-w-0 flex-1 pt-1.5 flex justify-between space-x-4">
+                                <div>
+                                  <p className="text-sm text-gray-500">
+                                    Received {lgrAmount} LGR (Settled)
+                                  </p>
+                                </div>
+                                <div className="text-right text-sm whitespace-nowrap text-gray-500">
+                                  <time dateTime={item.ts}>{item.ts.substring(0, 10)}</time>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </li>
+                      );
+                    })
+                  }
+                </ul>
+              </div>
             </div>
           </div>
-        );
+        )}
+      </div>
+    </div>
+  );
       case 'token-management':
         return (
           <div className="space-y-6">
@@ -629,7 +708,7 @@ const handleBurnTokens = () => {
                       </dt>
                       <dd className="flex items-baseline">
                         <div className="text-2xl font-semibold text-gray-900">
-                          7.73 GWh
+                         {dailyEnergyData ? `${dailyEnergyData.energyDay} ${dailyEnergyData.energyDayUnit}` : '暂无数据'}
                         </div>
                       </dd>
                     </dl>
@@ -664,7 +743,7 @@ const handleBurnTokens = () => {
                       </dt>
                       <dd className="flex items-baseline">
                         <div className="text-2xl font-semibold text-gray-900">
-                          {tokenBalance} Tokens
+                          {tokenBalance} LGR
                         </div>
                       </dd>
                       <dd className="mt-2">
@@ -714,7 +793,7 @@ const handleBurnTokens = () => {
                               <div className="min-w-0 flex-1 pt-1.5 flex justify-between space-x-4">
                                 <div>
                                   <p className="text-sm text-gray-500">
-                                    Received {item.amount} tokens
+                                    Received {item.amount} LGR
                                   </p>
                                 </div>
                                 <div className="text-right text-sm whitespace-nowrap text-gray-500">
@@ -746,12 +825,14 @@ const handleBurnTokens = () => {
               <button
                 onClick={() => setIsSidebarOpen(!isSidebarOpen)}
                 className="px-4 inline-flex items-center lg:hidden"
+                aria-label="Toggle sidebar"
               >
                 {isSidebarOpen ? <X size={24} /> : <Menu size={24} />}
               </button>
               <div className="flex-shrink-0 flex items-center">
-              <img src="/logo.png" alt="Logo" className="h-8 w-8 mr-2" />
-                <span className="ml-2 text-xl font-bold text-gray-900">Little Green Ranger</span>
+                <img src="/logo.png" alt="Logo" className="h-8 w-8 mr-2" />
+                <span className="ml-2 text-xl font-bold text-gray-900 hidden sm:inline">Little Green Ranger</span>
+                <span className="ml-2 text-xl font-bold text-gray-900 sm:hidden">LGR</span>
               </div>
               <div className="hidden lg:ml-6 lg:flex lg:space-x-8">
                 <button
@@ -790,27 +871,55 @@ const handleBurnTokens = () => {
               </div>
             </div>
             <div className="flex items-center">
-            <button
-              onClick={connected ? disconnectWallet : connectWallet}
-              className="inline-flex items-center px-10 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-            >
-              <Wallet className="mr-2 h-4 w-4" />
-              {connected ? 
-                walletAddress.slice(0, 4) + "..." + walletAddress.slice(-4) 
-    : "Connect Wallet"}
+              <button
+                onClick={connected ? disconnectWallet : connectWallet}
+                className="inline-flex items-center px-3 sm:px-6 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+              >
+                <Wallet className="mr-1 sm:mr-2 h-4 w-4" />
+                {connected ? 
+                  <span className="truncate max-w-[80px] sm:max-w-none">{walletAddress.slice(0, 4) + "..." + walletAddress.slice(-4)}</span> 
+                  : <span>
+                    <span className="hidden sm:inline">Connect Wallet</span>
+                    <span className="sm:hidden">Connect</span>
+                  </span>
+                }
               </button>
             </div>
           </div>
         </div>
       </nav>
 
+      {/* Mobile Sidebar Backdrop - Only visible on mobile when sidebar is open */}
+      {isSidebarOpen && (
+        <div 
+          className="fixed inset-0 bg-gray-600 bg-opacity-75 z-30 lg:hidden"
+          onClick={() => setIsSidebarOpen(false)}
+          aria-hidden="true"
+        ></div>
+      )}
+
       {/* Sidebar */}
-      <div className={`fixed inset-y-0 left-0 transform ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} lg:translate-x-0 lg:static lg:inset-0 z-40`}>
-        <div className="h-full w-64 bg-white shadow-lg">
-          <div className="h-0 flex-1 flex flex-col overflow-y-auto">
+      <div className={`fixed inset-y-0 left-0 transform ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} transition-transform duration-300 ease-in-out lg:translate-x-0 lg:static lg:inset-0 z-40`}>
+        <div className="h-full w-64 bg-white shadow-lg flex flex-col">
+          {/* Mobile Close Button */}
+          <div className="p-4 flex justify-between items-center lg:hidden">
+            <span className="font-medium">Menu</span>
+            <button 
+              onClick={() => setIsSidebarOpen(false)}
+              className="text-gray-500 hover:text-gray-700"
+              aria-label="Close sidebar"
+            >
+              <X size={24} />
+            </button>
+          </div>
+          
+          <div className="flex-1 flex flex-col overflow-y-auto">
             <nav className="flex-1 px-2 py-4 space-y-1">
               <button
-                onClick={() => setActiveTab('overview')}
+                onClick={() => {
+                  setActiveTab('overview');
+                  if (window.innerWidth < 1024) setIsSidebarOpen(false);
+                }}
                 className={`${
                   activeTab === 'overview'
                     ? 'bg-gray-100 text-gray-900'
@@ -821,7 +930,10 @@ const handleBurnTokens = () => {
                 Overview
               </button>
               <button
-                onClick={() => setActiveTab('token-management')}
+                onClick={() => {
+                  setActiveTab('token-management');
+                  if (window.innerWidth < 1024) setIsSidebarOpen(false);
+                }}
                 className={`${
                   activeTab === 'token-management'
                     ? 'bg-gray-100 text-gray-900'
@@ -832,7 +944,10 @@ const handleBurnTokens = () => {
                 Token Management
               </button>
               <button
-                onClick={() => setActiveTab('settings')}
+                onClick={() => {
+                  setActiveTab('settings');
+                  if (window.innerWidth < 1024) setIsSidebarOpen(false);
+                }}
                 className={`${
                   activeTab === 'settings'
                     ? 'bg-gray-100 text-gray-900'
@@ -916,20 +1031,104 @@ const handleBurnTokens = () => {
 
       {/* Footer */}
       <footer className="bg-white">
-        <div className="max-w-7xl mx-auto py-12 px-4 sm:px-6 md:flex md:items-center md:justify-between lg:px-8">
+        <div className="max-w-7xl mx-auto py-8 px-4 sm:px-6 md:flex md:items-center md:justify-between lg:px-8">
           <div className="flex justify-center space-x-6 md:order-2">
             <a href="#" className="text-gray-400 hover:text-gray-500">
               <span className="sr-only">Help Center</span>
               <HelpCircle className="h-6 w-6" />
             </a>
+            <a href="#" className="text-gray-400 hover:text-gray-500">
+              <span className="sr-only">GitHub</span>
+              {/* <Github className="h-6 w-6" /> */}
+            </a>
+            <a href="#" className="text-gray-400 hover:text-gray-500">
+              <span className="sr-only">Twitter</span>
+              {/* <Twitter className="h-6 w-6" /> */}
+            </a>
           </div>
           <div className="mt-8 md:mt-0 md:order-1">
-            <p className="text-center text-base text-gray-400">
-              &copy; Little Green Ranger. All rights reserved.
+            <p className="text-center text-sm text-gray-400">
+              &copy; 2025 Little Green Ranger Project. All rights reserved.
             </p>
           </div>
         </div>
       </footer>
+
+      {/* Burn Modal */}
+      {showBurnModal && (
+        <div className="fixed z-50 inset-0 overflow-y-auto">
+          <div className="flex items-center justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+            <div className="fixed inset-0 transition-opacity" aria-hidden="true">
+              <div className="absolute inset-0 bg-gray-500 opacity-75" onClick={() => setShowBurnModal(false)}></div>
+            </div>
+            <span className="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
+            <div className="inline-block align-bottom bg-white rounded-lg px-4 pt-5 pb-4 text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full sm:p-6">
+              <div>
+                <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-green-100">
+                  <Leaf className="h-6 w-6 text-green-600" />
+                </div>
+                <div className="mt-3 text-center sm:mt-5">
+                  <h3 className="text-lg leading-6 font-medium text-gray-900">
+                    Burn Tokens for Carbon Reduction
+                  </h3>
+                  <div className="mt-2">
+                    <p className="text-sm text-gray-500">
+                      By burning your LGR tokens, you are contributing to real-world carbon reduction projects. Each token equals approximately 0.05 tons of carbon emissions reduction.
+                    </p>
+                  </div>
+                </div>
+              </div>
+              <div className="mt-5 sm:mt-6">
+                <label htmlFor="burn-amount" className="block text-sm font-medium text-gray-700">
+                  Amount to Burn
+                </label>
+                <div className="mt-1 relative rounded-md shadow-sm">
+                  <input
+                    type="number"
+                    name="burn-amount"
+                    id="burn-amount"
+                    className="focus:ring-indigo-500 focus:border-indigo-500 block w-full pl-3 pr-12 sm:text-sm border-gray-300 rounded-md"
+                    placeholder="0.00"
+                    aria-describedby="burn-amount-currency"
+                    value={burnAmount}
+                    onChange={(e) => setBurnAmount(e.target.value)}
+                  />
+                  <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
+                    <span className="text-gray-500 sm:text-sm" id="burn-amount-currency">
+                      LGR
+                    </span>
+                  </div>
+                </div>
+                <div className="mt-2 text-sm text-gray-500">
+                  Current Balance: {tokenBalance ? `${tokenBalance.toFixed(4)} LGR` : '0.0000 LGR'}
+                </div>
+                <div className="mt-5 sm:mt-6 sm:grid sm:grid-cols-2 sm:gap-3 sm:grid-flow-row-dense">
+                  <button
+                    type="button"
+                    className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-green-600 text-base font-medium text-white hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 sm:col-start-2 sm:text-sm"
+                    onClick={handleBurnTokens}
+                  >
+                    Burn Tokens
+                  </button>
+                  <button
+                    type="button"
+                    className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:mt-0 sm:col-start-1 sm:text-sm"
+                    onClick={() => setShowBurnModal(false)}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Wallet Modal */}
+      {/* <WalletMultiButton /> */}
+      {/* <WalletModal /> */}
+
+
     </div>
   );
 }
