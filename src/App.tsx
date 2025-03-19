@@ -3,8 +3,8 @@ import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 // 在App.tsx顶部导入
 import { useWallet, useConnection } from '@solana/wallet-adapter-react';
 import { WalletNotConnectedError } from '@solana/wallet-adapter-base';
-import { LAMPORTS_PER_SOL, PublicKey, Connection } from '@solana/web3.js';
-import { getAssociatedTokenAddress, getAccount } from '@solana/spl-token';
+import { LAMPORTS_PER_SOL, PublicKey, Connection, Transaction, sendAndConfirmTransaction } from '@solana/web3.js';
+import { getAssociatedTokenAddress, getAccount, createAssociatedTokenAccountInstruction, TOKEN_PROGRAM_ID } from '@solana/spl-token';
 
 
 import { 
@@ -96,6 +96,8 @@ function App() {
   const [tokenHistory, setTokenHistory] = useState<TokenHistory[]>([]);
   const [burnHistory, setBurnHistory] = useState<BurnHistory[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+// 在App组件中添加一个新的状态
+const [tokenAccountExists, setTokenAccountExists] = useState(true);
 
   // 添加登录状态
 const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -251,24 +253,63 @@ useEffect(() => {
 
 
   // 定义一个常量用于LGR代币的Mint地址
-const LGR_TOKEN_MINT = new PublicKey('9GakfdPu97JYJ3EiEUYcx16d4Ho3sSsc7j5tzrSAVFEs');
+const LGR_TOKEN_MINT = new PublicKey('2aRoKCWNpm772VUUxNPCRKGneZnrJVywsE1yrQMWpjy4');
 
 // 添加获取LGR代币余额的函数
 const getLGRTokenBalance = async (walletPublicKey: PublicKey) => {
   try {
+    console.log("开始检查LGR代币账户详情:");
+    console.log("使用的MINT地址:", LGR_TOKEN_MINT.toString());
+    console.log("当前连接的网络:", connection.rpcEndpoint);
+    console.log("开始获取LGR余额，钱包地址:", walletPublicKey.toString());
     // 获取关联的代币账户地址
     const tokenAccountAddress = await getAssociatedTokenAddress(
       LGR_TOKEN_MINT,
       walletPublicKey
     );
+    console.log("关联的token账户地址:", tokenAccountAddress.toString());
     
+    // 查询所有的代币账户
+    console.log("尝试查询该钱包的所有代币账户...");
+    const allTokenAccounts = await connection.getParsedTokenAccountsByOwner(
+      walletPublicKey,
+      { programId: TOKEN_PROGRAM_ID }
+    );
+    
+    console.log(`找到${allTokenAccounts.value.length}个代币账户：`);
+    allTokenAccounts.value.forEach(account => {
+      const tokenInfo = account.account.data.parsed.info;
+      console.log(`- 账户: ${account.pubkey.toString()}`);
+      console.log(`  Mint: ${tokenInfo.mint}`);
+      console.log(`  余额: ${tokenInfo.tokenAmount.uiAmount}`);
+    });
+
     try {
       // 使用钱包适配器提供的connection
       const tokenAccount = await getAccount(connection, tokenAccountAddress);
+      console.log("成功获取token账户:", tokenAccount);
       // 返回余额（代币的小数位可能不是9，需根据实际情况调整）
+            // 标记账户存在
+            setTokenAccountExists(true);
       return Number(tokenAccount.amount) / Math.pow(10, 9);
     } catch (e) {
-      console.log('找不到LGR代币账户，余额可能为0');
+      console.log('找不到LGR代币账户，余额可能为0:', e);
+
+        // 标记账户不存在
+        setTokenAccountExists(false);
+
+     // 只显示提示信息，不提供创建账户的选项
+  if (connected && publicKey) {
+    toast.success(
+      '您的钱包中还没有LGR代币。当您收到第一笔LGR代币时，系统会自动为您创建账户。',
+      { 
+        duration: 8000,
+        icon: '💡'
+      }
+    );
+  }
+
+
       return 0;
     }
   } catch (error) {
@@ -276,6 +317,83 @@ const getLGRTokenBalance = async (walletPublicKey: PublicKey) => {
     return 0;
   }
 };
+
+// 创建关联token账户的函数 - 简化版
+const createTokenAccount = async () => {
+  if (!publicKey || !connected) {
+    toast.error('请先连接钱包');
+    return;
+  }
+
+  try {
+    toast.loading('正在准备创建代币账户...', { duration: 3000 });
+    
+    // 获取关联的代币账户地址
+    const tokenAccountAddress = await getAssociatedTokenAddress(
+      LGR_TOKEN_MINT,
+      publicKey
+    );
+    
+    console.log('尝试创建代币账户:', tokenAccountAddress.toString());
+    
+    // 使用低级API直接构建和发送交易
+    const transaction = new Transaction();
+    
+    // 添加创建关联代币账户的指令
+    transaction.add(
+      createAssociatedTokenAccountInstruction(
+        publicKey, // 付款人
+        tokenAccountAddress, // 要创建的关联代币账户地址
+        publicKey, // 拥有者
+        LGR_TOKEN_MINT // 代币Mint地址
+      )
+    );
+    
+    // 设置区块哈希和付款方
+    transaction.feePayer = publicKey;
+    const { blockhash } = await connection.getLatestBlockhash('confirmed');
+    transaction.recentBlockhash = blockhash;
+    
+    // 简化交易发送和确认逻辑
+    try {
+      toast.loading('请在钱包中确认交易...', { duration: 5000 });
+      
+      // 发送交易 - 使用较低超时设置
+      const signature = await wallet.sendTransaction(transaction, connection, { skipPreflight: false });
+      console.log('交易已发送，签名:', signature);
+      
+      // 简单等待而不使用confirmTransaction
+      toast.loading('正在确认交易...', { duration: 10000 });
+      await new Promise(resolve => setTimeout(resolve, 5000));
+      
+      // 尝试再次获取token账户
+      try {
+        await getAccount(connection, tokenAccountAddress);
+        toast.success('代币账户创建成功!');
+        setTimeout(() => updateBalances(), 2000);
+        return tokenAccountAddress;
+      } catch (e) {
+        toast.error('未能确认代币账户创建，请稍后查看余额');
+        return null;
+      }
+    } catch (txError) {
+      console.error('发送交易失败:', txError);
+      const errorMessage = txError instanceof Error ? txError.message : '未知错误';
+      toast.error('钱包拒绝了交易或出现错误: ' + errorMessage);
+      return null;
+    }
+  } catch (error) {
+    console.error('准备交易失败:', error);
+    const errorMessage = error instanceof Error ? error.message : '未知错误';
+    toast.error('创建代币账户失败: ' + errorMessage);
+    return null;
+  }
+};
+
+
+
+
+
 
 const updateBalances = async () => {
   if (connected && publicKey) {
@@ -448,7 +566,11 @@ const handleBurnTokens = () => {
                   <p className="text-md text-gray-700">Solana Balance: {walletBalance !== null ? `${walletBalance} SOL` : 'Loading...'}</p>
                   <span className="text-sm text-gray-500">Current Token Balance:</span>
                   <span className="font-medium text-green-600">
-                    {tokenBalance ? `${tokenBalance.toFixed(4)} LGR` : '0.0000 LGR'}
+                 {connected ? (
+  tokenAccountExists ? 
+    (tokenBalance !== null ? `${tokenBalance.toFixed(4)} LGR` : '加载中...') : 
+    '账户尚未创建'
+) : '请连接钱包'}
                   </span>
                 </div>
               </div>
@@ -754,7 +876,11 @@ const handleBurnTokens = () => {
                       </dt>
                       <dd className="flex items-baseline">
                         <div className="text-2xl font-semibold text-gray-900">
-                          {tokenBalance} LGR
+                        {connected ? (
+                          tokenBalance !== null ? 
+                        `${tokenBalance.toFixed(4)} LGR` : 
+                       '加载中...'
+                        ) : '请连接钱包'}
                         </div>
                       </dd>
                       <dd className="mt-2">
