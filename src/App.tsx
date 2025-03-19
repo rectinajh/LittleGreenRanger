@@ -86,7 +86,7 @@ function App() {
     systemAlerts: true,
     marketingEmails: false
   });
-
+  const [totalEnergy, setTotalEnergy] = useState(0);
   const [dailyEnergyData, setDailyEnergyData] = useState(null);
   const [monthlyEnergyData, setMonthlyEnergyData] = useState(null);
   const [yearlyEnergyData, setYearlyEnergyData] = useState(null);
@@ -175,6 +175,8 @@ const login = async () => {
         console.log('2025-03 发电量:', marchVal);
 
         const totalEnergy = Number(februaryVal) + Number(marchVal);
+        console.log('总的发电量:', totalEnergy);
+        setTotalEnergy(totalEnergy);
         const ecerData = await api.getECERIncome(Number(totalEnergy));
         console.log(`二氧化碳减排量: ${ecerData.erCarbonDioxideEmission} kg`);
         console.log(`相当于种植树木: ${ecerData.erEqTreePlanting} 棵`);
@@ -673,10 +675,7 @@ const handleBurnTokens = () => {
                   <div className="bg-gray-50 p-4 rounded-lg">
                     <h3 className="text-md font-medium text-gray-700 mb-2">Total Balance</h3>
                     <p className="text-2xl font-bold text-gray-900">
-  {yearlyEnergyData?.vals ? 
-    `${(yearlyEnergyData.vals.find(v => v.ts === '2025-02')?.val || 0) + 
-       (yearlyEnergyData.vals.find(v => v.ts === '2025-03')?.val || 0)} LGR Tokens` 
-    : '暂无数据'}
+                    {totalEnergy ? `${totalEnergy} LGR Tokens` : '暂无数据'}
 </p>
             
                     <div className="mt-4">
