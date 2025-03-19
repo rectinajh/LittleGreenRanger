@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
-
 // 在App.tsx顶部导入
 import { useWallet, useConnection } from '@solana/wallet-adapter-react';
 import { WalletNotConnectedError } from '@solana/wallet-adapter-base';
@@ -76,6 +75,7 @@ function App() {
     const { publicKey, connected, connecting, disconnect, connect } = wallet;
 
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
   const [walletAddress, setWalletAddress] = useState<string>("");
   const [tokenBalance, setTokenBalance] = useState(0);
   const [walletBalance, setWalletBalance] = useState<number | null>(null);
@@ -99,6 +99,7 @@ function App() {
 
   // 添加登录状态
 const [isLoggedIn, setIsLoggedIn] = useState(false);
+
 
 
 // 添加登录函数
@@ -204,17 +205,12 @@ const login = async () => {
       toast.error('获取能源数据失败');
     }
   };
-
-  
-
-  useEffect(() => {
-    login();
-  }, []);
   
 
    // useEffect
  // 只在登录时获取数据
  useEffect(() => {
+  login();
   console.log('登录状态:', isLoggedIn);
   if (isLoggedIn) {
     fetchData().then(() => {
@@ -238,6 +234,21 @@ const login = async () => {
      document.removeEventListener('visibilitychange', handleVisibilityChange);
    };
 }, [isLoggedIn, publicKey, walletBalance]);
+
+// 设备类型检测的独立useEffect
+useEffect(() => {
+  const handleResize = () => {
+    setIsMobile(window.innerWidth < 1024);
+    if (window.innerWidth >= 1024 && isSidebarOpen) {
+      setIsSidebarOpen(false);
+    }
+  };
+  
+  handleResize();
+  window.addEventListener('resize', handleResize);
+  return () => window.removeEventListener('resize', handleResize);
+}, [isSidebarOpen]); // 注意依赖项中需要包含isSidebarOpen
+
 
   // 定义一个常量用于LGR代币的Mint地址
 const LGR_TOKEN_MINT = new PublicKey('9GakfdPu97JYJ3EiEUYcx16d4Ho3sSsc7j5tzrSAVFEs');
@@ -822,6 +833,7 @@ const handleBurnTokens = () => {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-16">
             <div className="flex">
+              {/* 移动端汉堡菜单 - 仅移动端显示 */}
               <button
                 onClick={() => setIsSidebarOpen(!isSidebarOpen)}
                 className="px-4 inline-flex items-center lg:hidden"
@@ -829,11 +841,15 @@ const handleBurnTokens = () => {
               >
                 {isSidebarOpen ? <X size={24} /> : <Menu size={24} />}
               </button>
+
+              {/* Logo - 始终显示 */}
               <div className="flex-shrink-0 flex items-center">
                 <img src="/logo.png" alt="Logo" className="h-8 w-8 mr-2" />
                 <span className="ml-2 text-xl font-bold text-gray-900 hidden sm:inline">Little Green Ranger</span>
                 <span className="ml-2 text-xl font-bold text-gray-900 sm:hidden">LGR</span>
               </div>
+
+              {/* 桌面导航 - 仅PC端显示 */}
               <div className="hidden lg:ml-6 lg:flex lg:space-x-8">
                 <button
                   onClick={() => setActiveTab('overview')}
@@ -870,6 +886,8 @@ const handleBurnTokens = () => {
                 </button>
               </div>
             </div>
+
+            {/* 钱包连接按钮 */}
             <div className="flex items-center">
               <button
                 onClick={connected ? disconnectWallet : connectWallet}
@@ -889,7 +907,7 @@ const handleBurnTokens = () => {
         </div>
       </nav>
 
-      {/* Mobile Sidebar Backdrop - Only visible on mobile when sidebar is open */}
+      {/* 移动端遮罩层 */}
       {isSidebarOpen && (
         <div 
           className="fixed inset-0 bg-gray-600 bg-opacity-75 z-30 lg:hidden"
@@ -898,11 +916,11 @@ const handleBurnTokens = () => {
         ></div>
       )}
 
-      {/* Sidebar */}
-      <div className={`fixed inset-y-0 left-0 transform ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} transition-transform duration-300 ease-in-out lg:translate-x-0 lg:static lg:inset-0 z-40`}>
-        <div className="h-full w-64 bg-white shadow-lg flex flex-col">
-          {/* Mobile Close Button */}
-          <div className="p-4 flex justify-between items-center lg:hidden">
+      {/* 移动端侧边栏 */}
+      <div className={`lg:hidden fixed inset-y-0 left-0 w-64 bg-white shadow-lg transform transition-transform duration-300 ease-in-out z-40 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+        <div className="h-full flex flex-col">
+          {/* 侧边栏头部 */}
+          <div className="p-4 flex justify-between items-center border-b">
             <span className="font-medium">Menu</span>
             <button 
               onClick={() => setIsSidebarOpen(false)}
@@ -912,60 +930,59 @@ const handleBurnTokens = () => {
               <X size={24} />
             </button>
           </div>
-          
-          <div className="flex-1 flex flex-col overflow-y-auto">
-            <nav className="flex-1 px-2 py-4 space-y-1">
-              <button
-                onClick={() => {
-                  setActiveTab('overview');
-                  if (window.innerWidth < 1024) setIsSidebarOpen(false);
-                }}
-                className={`${
-                  activeTab === 'overview'
-                    ? 'bg-gray-100 text-gray-900'
-                    : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
-                } group flex items-center px-2 py-2 text-sm font-medium rounded-md w-full`}
-              >
-                <BarChart3 className="mr-3 h-6 w-6 text-gray-400" />
-                Overview
-              </button>
-              <button
-                onClick={() => {
-                  setActiveTab('token-management');
-                  if (window.innerWidth < 1024) setIsSidebarOpen(false);
-                }}
-                className={`${
-                  activeTab === 'token-management'
-                    ? 'bg-gray-100 text-gray-900'
-                    : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
-                } group flex items-center px-2 py-2 text-sm font-medium rounded-md w-full`}
-              >
-                <Coins className="mr-3 h-6 w-6 text-gray-400" />
-                Token Management
-              </button>
-              <button
-                onClick={() => {
-                  setActiveTab('settings');
-                  if (window.innerWidth < 1024) setIsSidebarOpen(false);
-                }}
-                className={`${
-                  activeTab === 'settings'
-                    ? 'bg-gray-100 text-gray-900'
-                    : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
-                } group flex items-center px-2 py-2 text-sm font-medium rounded-md w-full`}
-              >
-                <Settings className="mr-3 h-6 w-6 text-gray-400" />
-                Settings
-              </button>
-            </nav>
-          </div>
+
+          {/* 导航项 */}
+          <nav className="flex-1 px-2 py-4 space-y-1">
+            <button
+              onClick={() => {
+                setActiveTab('overview');
+                setIsSidebarOpen(false);
+              }}
+              className={`${
+                activeTab === 'overview'
+                  ? 'bg-gray-100 text-gray-900'
+                  : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+              } group flex items-center px-2 py-2 text-sm font-medium rounded-md w-full`}
+            >
+              <BarChart3 className="mr-3 h-6 w-6 text-gray-400" />
+              Overview
+            </button>
+            <button
+              onClick={() => {
+                setActiveTab('token-management');
+                setIsSidebarOpen(false);
+              }}
+              className={`${
+                activeTab === 'token-management'
+                  ? 'bg-gray-100 text-gray-900'
+                  : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+              } group flex items-center px-2 py-2 text-sm font-medium rounded-md w-full`}
+            >
+              <Coins className="mr-3 h-6 w-6 text-gray-400" />
+              Token Management
+            </button>
+            <button
+              onClick={() => {
+                setActiveTab('settings');
+                setIsSidebarOpen(false);
+              }}
+              className={`${
+                activeTab === 'settings'
+                  ? 'bg-gray-100 text-gray-900'
+                  : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+              } group flex items-center px-2 py-2 text-sm font-medium rounded-md w-full`}
+            >
+              <Settings className="mr-3 h-6 w-6 text-gray-400" />
+              Settings
+            </button>
+          </nav>
         </div>
       </div>
 
       {/* Main Content */}
       <main className="flex-1 relative z-0 overflow-y-auto focus:outline-none">
-        <div className="py-6">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="py-6 px-4 sm:px-6 lg:px-8">
+          <div className="max-w-7xl mx-auto">
             {renderContent()}
           </div>
         </div>
