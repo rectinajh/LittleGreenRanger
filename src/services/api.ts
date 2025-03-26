@@ -9,6 +9,8 @@ import type {
     EnergyDayParam,
     EnergyMonthParams, 
     EnergyYearItem, 
+    EnergyTotalPerYearParams,
+    EnergyTotalPerYearItem,
     EnergyResponse 
   } from '../types';
 
@@ -27,7 +29,8 @@ class ApiService {
     ecerIncome: '/dgm/api/dgm/itemseybond/ECERIncome',
     energyYearPerMonth: '/dcs/api/auth/web/solar/device/energyYearPerMonth',
     energyMonthPerDay: '/dcs/api/auth/web/solar/device/energyMonthPerDay',
-    energyDetail: '/dcs/api/auth/web/solar/device/energyDetail'
+    energyDetail: '/dcs/api/auth/web/solar/device/energyDetail',
+    energyTotalPerYear: '/dcs/api/auth/app/solar/device/energyTotalPerYear'
   };
 
   private async ensureAuth() {
@@ -156,6 +159,22 @@ class ApiService {
     try {
       const response = await this.makeAuthRequest<EnergyResponse>(
         this.paths.energyYearPerMonth,
+        params
+      );
+      if (response.data.success) {
+        return response.data.data.items.find(item => item.typeCode === 0);
+      }
+      throw new Error(response.data.errorMessage || '未知错误');
+    } catch (error) {
+      console.error('Energy API Error:', error);
+      throw error;
+    }
+  }
+
+  async getEnergyTotalPerYear(params: EnergyTotalPerYearParams): Promise<EnergyTotalPerYearItem | undefined> {
+    try {
+      const response = await this.makeAuthRequest<EnergyResponse>(
+        this.paths.energyTotalPerYear,
         params
       );
       if (response.data.success) {

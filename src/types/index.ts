@@ -69,6 +69,22 @@ export interface EnergyYearItem {
     sn: string;
     type: number;
   }
+
+  export interface EnergyTotalPerYearParams {
+    devaddr: number;
+    devcode: number;
+    pn: string;
+    sn: string;
+    type: number;
+  }
+
+  export interface EnergyTotalPerYearItem {
+    typeCode: number;
+    vals: Array<{
+      ts: string;
+      val: number;
+    }>;
+  }
   
   export interface EnergyResponse {
     success: boolean;

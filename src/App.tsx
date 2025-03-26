@@ -27,6 +27,8 @@ import {
   TrendingUp
 } from 'lucide-react';
 import toast, { Toaster } from 'react-hot-toast';
+// Global variable to store the energy value for the year 2025
+let energyValue2025: number = 0;
 
 import { api } from './services/api';
 import { auth } from './services/auth';
@@ -158,6 +160,34 @@ const login = async () => {
         console.log('数据已设置'); // 添加日志
       }
 
+      const fetchTotalEnergyPerYear = async () => {
+        try {
+          const totalPerYearData = await api.getEnergyTotalPerYear({
+            devaddr: 1,
+            devcode: 23727,
+            pn: 'E60000231141084179',
+            sn: 'DEV194DF395ECBDD3C',
+            type: 1
+          });
+          
+
+          if (totalPerYearData) {
+            console.log('Total energy per year data:', totalPerYearData);
+            // Process the data as needed
+            // Extract the val for ts="2025"
+            const data2025 = totalPerYearData.vals.find(item => item.ts === "2025");
+            if (data2025) {
+              // Store in global variable
+              energyValue2025 = data2025.val;
+              console.log('Energy value for 2025:', energyValue2025);
+            }
+          }
+        } catch (error) {
+          console.error('Error fetching total energy per year:', error);
+        }
+      };
+      await fetchTotalEnergyPerYear();
+
       // 获取年度每月发电量
       const yearlyData = await api.getEnergyYearPerMonth({
         date: today,
@@ -176,8 +206,8 @@ const login = async () => {
 
         const totalEnergy = Number(februaryVal) + Number(marchVal);
         console.log('总的发电量:', totalEnergy);
-        setTotalEnergy(totalEnergy);
-        const ecerData = await api.getECERIncome(Number(totalEnergy));
+        setTotalEnergy(energyValue2025);
+        const ecerData = await api.getECERIncome(Number(energyValue2025));
         console.log(`二氧化碳减排量: ${ecerData.erCarbonDioxideEmission} kg`);
         console.log(`相当于种植树木: ${ecerData.erEqTreePlanting} 棵`);
         console.log(`节省标准煤: ${ecerData.erSavingStandardCoal} kg`);
@@ -675,7 +705,7 @@ const handleBurnTokens = () => {
                   <div className="bg-gray-50 p-4 rounded-lg">
                     <h3 className="text-md font-medium text-gray-700 mb-2">Total Balance</h3>
                     <p className="text-2xl font-bold text-gray-900">
-                    {totalEnergy ? `${totalEnergy} LGR Tokens` : '暂无数据'}
+                    {totalEnergy ? `${energyValue2025} LGR` : '暂无数据'}
 </p>
             
                     <div className="mt-4">
@@ -690,7 +720,7 @@ const handleBurnTokens = () => {
                   </div>
                   <div className="bg-gray-50 p-4 rounded-lg">
                     <h3 className="text-md font-medium text-gray-700 mb-2">Carbon Impact</h3>
-                    <p className="text-2xl font-bold text-green-600">4.0 tons</p>
+                    <p className="text-2xl font-bold text-green-600">{ecerData.erCarbonDioxideEmission} kg</p>
                     <p className="text-sm text-gray-500 mt-1">Total carbon emissions reduced</p>
                   </div>
                 </div>
